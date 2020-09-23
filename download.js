@@ -9,8 +9,8 @@ import cheerio from 'cheerio'
 
 const { protocol } = new URL(config.url)
 
-const pages = [config.startPage]
-const resources = [config.startPage]
+let pages = [config.startPage]
+let resources = [config.startPage]
 
 // 获取文件存储路径，不存在就创建
 function getFilePath(url) {
@@ -34,15 +34,25 @@ function getFilePath(url) {
 // 保存资源
 export async function saveSource(url) {
     const filePath = getFilePath(url)
-    const res = await axios.get(url, {
+    const res = await axios.get(encodeURI(url), {
         responseType: "stream"
     })
     const writer = fs.createWriteStream(filePath);
     res.data.pipe(writer)
 }
 
+export async function searchUrlByClass(url, searchClass) {
+    const { data: html } = await axios.get(encodeURI(url))
+    const $ = cheerio.load(html)
+    if($(searchClass).length > 0) {
+        return true
+    }
+    return false
+}
+
+
 async function parseHtml(url){
-    const { data: html } = await axios.get(url)
+    const { data: html } = await axios.get(encodeURI(url))
     const $ = cheerio.load(html)
     const aTags = $('a')
     const scriptTags = $('script')
@@ -60,7 +70,7 @@ async function parseHtml(url){
             _link.replace(/http:\/\/|https:\/\//, protocol + '://')
             if(!_link.includes(config.url)) return true
         }
-        if(['','.html'].includes(path.parse(parse(_link).pathname).ext && !pages.includes(_link))){
+        if(['','.html'].includes(path.parse(parse(_link).pathname).ext)){
             _pages.push(_link)
         }
         if(!resources.includes(_link)){
@@ -109,13 +119,16 @@ async function parseHtml(url){
 export async function getAllPath(){
     let n = 0
     while(n++ < config.level){
-        console.log(`第${n}次扫描`)
-        let _pages
+        let _pages = []
         for(let i = 0, len = pages.length; i < len; i ++) {
-            _pages = await parseHtml(pages[i])
+            let urls = await parseHtml(pages[i]).catch(err => {
+                console.log('err',pages[i])
+            })
+            _pages.push(...urls)
         }
-        pages.push(...new Set(_pages))
+
+        pages = [...new Set([..._pages,...pages])]
     }
-    console.log('扫描结束开始下载资源！')
-    return resources
+    console.log('扫描结束')
+    return {pages, resources}
 }
